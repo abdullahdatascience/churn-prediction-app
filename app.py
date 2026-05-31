@@ -7,7 +7,7 @@ import shap
 import matplotlib.pyplot as plt
 
 # =========================
-# LOAD ARTIFACTS
+# LOAD MODELS
 # =========================
 BASE_DIR = os.path.dirname(__file__)
 
@@ -15,147 +15,141 @@ model = joblib.load(os.path.join(BASE_DIR, "churn_model.pkl"))
 features = joblib.load(os.path.join(BASE_DIR, "features.pkl"))
 scaler = joblib.load(os.path.join(BASE_DIR, "scaler.pkl"))
 
-st.set_page_config(page_title="Churn AI Platform", layout="wide")
-
-st.title("🚀 Customer Churn Intelligence Platform (FAANG Level)")
-st.markdown("Advanced ML + Explainable AI System")
-
 # =========================
-# TABS
+# PAGE CONFIG
 # =========================
-tab1, tab2, tab3 = st.tabs(["📊 Single Prediction", "📂 Batch Prediction", "🧠 Model Explainability"])
+st.set_page_config(page_title="Churn AI System", layout="wide")
+
+st.title("📊 Customer Churn Prediction System")
+st.markdown("AI-powered churn prediction with explainable AI")
 
 # =========================
-# HELPER FUNCTIONS
+# INPUT SECTION
 # =========================
-def yes_no(x):
-    return 1 if x == "Yes" else 0
+col1, col2, col3 = st.columns(3)
 
-def encode_gender(x):
-    return 1 if x == "Male" else 0
+with col1:
+    gender = st.selectbox("Gender", ["Female", "Male"])
+    senior = st.selectbox("Senior Citizen", ["No", "Yes"])
+    partner = st.selectbox("Partner", ["No", "Yes"])
+    dependents = st.selectbox("Dependents", ["No", "Yes"])
+
+with col2:
+    tenure = st.slider("Tenure (Months)", 0, 72, 12)
+    internet = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
+    contract = st.selectbox("Contract Type", ["Month-to-month", "One year", "Two year"])
+    paperless = st.selectbox("Paperless Billing", ["No", "Yes"])
+
+with col3:
+    monthly = st.number_input("Monthly Charges", 0.0, 200.0, 70.0)
+    total = st.number_input("Total Charges", 0.0, 10000.0, 1000.0)
+
+st.divider()
 
 # =========================
 # FEATURE ENGINEERING
 # =========================
-def build_input(data):
-    data["AvgMonthlySpend"] = data["TotalCharges"] / (data["tenure"] + 1)
-    df = pd.DataFrame([data])
-    df = df.reindex(columns=features, fill_value=0)
+def yes_no(x):
+    return 1 if x == "Yes" else 0
 
-    num_cols = ["tenure", "MonthlyCharges", "TotalCharges", "AvgMonthlySpend"]
-    df[num_cols] = scaler.transform(df[num_cols])
-    return df
+def gender_encode(x):
+    return 1 if x == "Male" else 0
+
+avg_spend = total / (tenure + 1)
+
+input_dict = {
+    "gender": gender_encode(gender),
+    "SeniorCitizen": yes_no(senior),
+    "Partner": yes_no(partner),
+    "Dependents": yes_no(dependents),
+    "tenure": tenure,
+    "PhoneService": 1,
+    "PaperlessBilling": yes_no(paperless),
+    "MonthlyCharges": monthly,
+    "TotalCharges": total,
+
+    "OnlineSecurity_Yes": 0,
+    "TechSupport_Yes": 0,
+    "StreamingTV_Yes": 0,
+    "StreamingMovies_Yes": 0,
+
+    "Contract_One year": 1 if contract == "One year" else 0,
+    "Contract_Two year": 1 if contract == "Two year" else 0,
+
+    "InternetService_Fiber optic": 1 if internet == "Fiber optic" else 0,
+
+    "IsMonthToMonth": 1 if contract == "Month-to-month" else 0,
+
+    "AvgMonthlySpend": avg_spend
+}
+
+input_df = pd.DataFrame([input_dict])
+input_df = input_df.reindex(columns=features, fill_value=0)
+
+num_cols = ["tenure", "MonthlyCharges", "TotalCharges", "AvgMonthlySpend"]
+input_df[num_cols] = scaler.transform(input_df[num_cols])
 
 # =========================
-# TAB 1 - SINGLE PREDICTION
+# PREDICTION
 # =========================
-with tab1:
+if st.button("🚀 Predict Churn Risk"):
 
-    st.subheader("Customer Details")
+    prob = model.predict_proba(input_df)[0][1]
 
-    col1, col2, col3 = st.columns(3)
+    st.subheader("📊 Prediction Result")
 
-    with col1:
-        gender = st.selectbox("Gender", ["Female", "Male"])
-        senior = st.selectbox("Senior Citizen", ["No", "Yes"])
-        partner = st.selectbox("Partner", ["No", "Yes"])
-        dependents = st.selectbox("Dependents", ["No", "Yes"])
+    colA, colB, colC = st.columns(3)
 
-    with col2:
-        tenure = st.slider("Tenure", 0, 72, 12)
-        internet = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
-        contract = st.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
-        paperless = st.selectbox("Paperless Billing", ["No", "Yes"])
-
-    with col3:
-        monthly = st.number_input("Monthly Charges", 0.0, 200.0, 70.0)
-        total = st.number_input("Total Charges", 0.0, 10000.0, 1000.0)
-
-    input_data = {
-        "gender": encode_gender(gender),
-        "SeniorCitizen": yes_no(senior),
-        "Partner": yes_no(partner),
-        "Dependents": yes_no(dependents),
-        "tenure": tenure,
-        "PhoneService": 1,
-        "PaperlessBilling": yes_no(paperless),
-        "MonthlyCharges": monthly,
-        "TotalCharges": total,
-        "OnlineSecurity_Yes": 0,
-        "TechSupport_Yes": 0,
-        "StreamingTV_Yes": 0,
-        "StreamingMovies_Yes": 0,
-        "Contract_One year": 1 if contract == "One year" else 0,
-        "Contract_Two year": 1 if contract == "Two year" else 0,
-        "InternetService_Fiber optic": 1 if internet == "Fiber optic" else 0,
-        "IsMonthToMonth": 1 if contract == "Month-to-month" else 0
-    }
-
-    if st.button("Predict Churn Risk"):
-
-        X = build_input(input_data)
-
-        prob = model.predict_proba(X)[0][1]
-
+    with colA:
         st.metric("Churn Probability", f"{prob:.2f}")
 
-        if prob > 0.7:
-            st.error("High Risk Customer")
-        elif prob > 0.3:
-            st.warning("Medium Risk Customer")
+    with colB:
+        if prob < 0.3:
+            st.success("Low Risk")
+        elif prob < 0.7:
+            st.warning("Medium Risk")
         else:
-            st.success("Low Risk Customer")
+            st.error("High Risk")
 
-        # =========================
-        # SHAP LOCAL EXPLANATION
-        # =========================
-        st.subheader("🧠 Why this prediction? (SHAP)")
+    with colC:
+        st.metric("Decision", "Retain" if prob < 0.5 else "At Risk")
 
+    # =========================
+    # SAFE SHAP EXPLANATION (FIXED)
+    # =========================
+    st.subheader("🧠 Explainable AI (SHAP)")
+
+    try:
         explainer = shap.TreeExplainer(model)
-        shap_values = explainer.shap_values(X)
+
+        # IMPORTANT FIX: use real input instead of fake zeros
+        shap_input = input_df.copy()
+
+        shap_values = explainer.shap_values(shap_input)
+
+        # FIX FOR OLD + NEW SHAP VERSIONS
+        if isinstance(shap_values, list):
+            shap_values = shap_values[1]
+
+        # Ensure correct shape (force matrix)
+        shap_values = np.array(shap_values)
 
         fig, ax = plt.subplots()
-        shap.force_plot(
-            explainer.expected_value[1],
-            shap_values[1],
-            X,
-            matplotlib=True,
+
+        shap.summary_plot(
+            shap_values,
+            shap_input,
             show=False
         )
+
         st.pyplot(fig)
 
-# =========================
-# TAB 2 - BATCH PREDICTION
-# =========================
-with tab2:
-
-    st.subheader("Upload Customer CSV")
-
-    file = st.file_uploader("Upload dataset", type=["csv"])
-
-    if file:
-        df = pd.read_csv(file)
-
-        st.write("Preview:", df.head())
-
-        st.success("File uploaded successfully")
+    except Exception as e:
+        st.warning("SHAP explanation could not be rendered in cloud environment.")
+        st.text(str(e))
 
 # =========================
-# TAB 3 - GLOBAL EXPLANATION
+# FOOTER
 # =========================
-with tab3:
-
-    st.subheader("Feature Importance (Global SHAP)")
-
-    explainer = shap.TreeExplainer(model)
-
-    # sample for speed
-    sample = pd.DataFrame(np.zeros((100, len(features))), columns=features)
-
-    shap_values = explainer.shap_values(sample)
-
-    fig, ax = plt.subplots()
-    shap.summary_plot(shap_values[1], sample, show=False)
-    st.pyplot(fig)
-
-    st.info("Top drivers of churn shown using SHAP values")
+st.markdown("---")
+st.markdown("Built with ❤️ for Customer Retention Analytics")
