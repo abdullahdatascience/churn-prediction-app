@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import pickle
+import joblib
 
 # =========================
 # PAGE CONFIG
@@ -15,11 +15,11 @@ st.title("📊 Customer Retention & Churn Prediction System")
 st.markdown("AI-powered system to predict customer churn and support retention decisions.")
 
 # =========================
-# LOAD ARTIFACTS
+# LOAD ARTIFACTS (FIXED)
 # =========================
-model = pickle.load(open("churn_model.pkl", "rb"))
-scaler = pickle.load(open("scaler.pkl", "rb"))
-features = pickle.load(open("features.pkl", "rb"))
+model = joblib.load("churn_model.pkl")
+scaler = joblib.load("scaler.pkl")
+features = joblib.load("features.pkl")
 
 # =========================
 # BUSINESS LOGIC
@@ -41,7 +41,7 @@ def action_plan(risk):
         return "✅ No action required"
 
 # =========================
-# SIDEBAR NAVIGATION
+# NAVIGATION
 # =========================
 menu = st.sidebar.radio(
     "Navigation",
@@ -49,13 +49,11 @@ menu = st.sidebar.radio(
 )
 
 # =========================
-# SINGLE PREDICTION PAGE
+# SINGLE PREDICTION
 # =========================
 if menu == "Single Customer Prediction":
 
     st.header("👤 Single Customer Risk Analysis")
-
-    st.subheader("Enter Customer Information")
 
     col1, col2 = st.columns(2)
 
@@ -63,7 +61,7 @@ if menu == "Single Customer Prediction":
         tenure = st.number_input("Tenure (months)", 0, 100, 12)
         monthly_charges = st.number_input("Monthly Charges", 0.0, 200.0, 70.0)
         total_charges = st.number_input("Total Charges", 0.0, 10000.0, 1000.0)
-        is_month_to_month = st.selectbox("Contract Type (Month-to-Month)", ["No", "Yes"])
+        is_month_to_month = st.selectbox("Month-to-Month Contract", ["No", "Yes"])
         internet_service = st.selectbox("Internet Service", ["DSL", "Fiber Optic", "No"])
 
     with col2:
@@ -75,7 +73,7 @@ if menu == "Single Customer Prediction":
         avg_monthly_spend = st.number_input("Average Monthly Spend", 0.0, 200.0, 70.0)
 
     # =========================
-    # SIMPLE ENCODING (UI FRIENDLY)
+    # ENCODING
     # =========================
     contract = 1 if is_month_to_month == "Yes" else 0
 
@@ -91,7 +89,7 @@ if menu == "Single Customer Prediction":
     payment = payment_map[payment_method]
 
     # =========================
-    # MODEL INPUT
+    # INPUT VECTOR
     # =========================
     input_data = np.array([[
         tenure,
@@ -126,18 +124,14 @@ if menu == "Single Customer Prediction":
 
         st.success(action)
 
-        # =========================
-        # EXPLANATION SECTION (PLACEHOLDER FOR SHAP)
-        # =========================
-        st.subheader("🔍 Why this prediction? (Explainability)")
-
+        st.subheader("🔍 Explainability")
         st.info(
-            "Top drivers typically include:\n"
-            "- Contract type (Month-to-month)\n"
-            "- High monthly charges\n"
-            "- Short tenure\n"
-            "- Fiber optic service usage\n\n"
-            "👉 Integrate SHAP values here for full transparency."
+            "Top drivers:\n"
+            "- Contract type\n"
+            "- Monthly charges\n"
+            "- Tenure\n"
+            "- Internet service\n\n"
+            "👉 (Add SHAP visualization for full production upgrade)"
         )
 
 # =========================
@@ -202,19 +196,19 @@ elif menu == "Business Dashboard":
     col2.metric("Churn Rate", "26.5%")
     col3.metric("High Risk Customers", "Approx. 1800")
 
-    st.subheader("📌 Key Business Insights")
+    st.subheader("Key Insights")
 
     st.markdown("""
-    - Month-to-month contracts significantly increase churn risk  
-    - Fiber optic users show higher churn probability  
-    - Higher monthly charges correlate with churn  
-    - Low tenure customers are most likely to leave  
+    - Month-to-month contracts increase churn risk  
+    - Fiber optic users have higher churn  
+    - High monthly charges increase churn probability  
+    - Low tenure customers are most likely to churn  
     """)
 
-    st.subheader("📊 Feature Importance (Illustrative)")
+    st.subheader("Feature Importance (Illustrative)")
 
     st.bar_chart({
-        "Contract Type": 0.35,
+        "Contract": 0.35,
         "Tenure": 0.25,
         "Monthly Charges": 0.20,
         "Internet Service": 0.10,
