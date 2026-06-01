@@ -1,155 +1,222 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib
-import os
-import shap
-import matplotlib.pyplot as plt
-
-# =========================
-# LOAD MODELS
-# =========================
-BASE_DIR = os.path.dirname(__file__)
-
-model = joblib.load(os.path.join(BASE_DIR, "churn_model.pkl"))
-features = joblib.load(os.path.join(BASE_DIR, "features.pkl"))
-scaler = joblib.load(os.path.join(BASE_DIR, "scaler.pkl"))
+import pickle
 
 # =========================
 # PAGE CONFIG
 # =========================
-st.set_page_config(page_title="Churn AI System", layout="wide")
+st.set_page_config(
+    page_title="Customer Retention AI System",
+    layout="wide"
+)
 
-st.title("📊 Customer Churn Prediction System")
-st.markdown("AI-powered churn prediction with explainable AI")
-
-# =========================
-# INPUT SECTION
-# =========================
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    gender = st.selectbox("Gender", ["Female", "Male"])
-    senior = st.selectbox("Senior Citizen", ["No", "Yes"])
-    partner = st.selectbox("Partner", ["No", "Yes"])
-    dependents = st.selectbox("Dependents", ["No", "Yes"])
-
-with col2:
-    tenure = st.slider("Tenure (Months)", 0, 72, 12)
-    internet = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
-    contract = st.selectbox("Contract Type", ["Month-to-month", "One year", "Two year"])
-    paperless = st.selectbox("Paperless Billing", ["No", "Yes"])
-
-with col3:
-    monthly = st.number_input("Monthly Charges", 0.0, 200.0, 70.0)
-    total = st.number_input("Total Charges", 0.0, 10000.0, 1000.0)
-
-st.divider()
+st.title("📊 Customer Retention & Churn Prediction System")
+st.markdown("AI-powered system to predict customer churn and support retention decisions.")
 
 # =========================
-# FEATURE ENGINEERING
+# LOAD ARTIFACTS
 # =========================
-def yes_no(x):
-    return 1 if x == "Yes" else 0
-
-def gender_encode(x):
-    return 1 if x == "Male" else 0
-
-avg_spend = total / (tenure + 1)
-
-input_dict = {
-    "gender": gender_encode(gender),
-    "SeniorCitizen": yes_no(senior),
-    "Partner": yes_no(partner),
-    "Dependents": yes_no(dependents),
-    "tenure": tenure,
-    "PhoneService": 1,
-    "PaperlessBilling": yes_no(paperless),
-    "MonthlyCharges": monthly,
-    "TotalCharges": total,
-
-    "OnlineSecurity_Yes": 0,
-    "TechSupport_Yes": 0,
-    "StreamingTV_Yes": 0,
-    "StreamingMovies_Yes": 0,
-
-    "Contract_One year": 1 if contract == "One year" else 0,
-    "Contract_Two year": 1 if contract == "Two year" else 0,
-
-    "InternetService_Fiber optic": 1 if internet == "Fiber optic" else 0,
-
-    "IsMonthToMonth": 1 if contract == "Month-to-month" else 0,
-
-    "AvgMonthlySpend": avg_spend
-}
-
-input_df = pd.DataFrame([input_dict])
-input_df = input_df.reindex(columns=features, fill_value=0)
-
-num_cols = ["tenure", "MonthlyCharges", "TotalCharges", "AvgMonthlySpend"]
-input_df[num_cols] = scaler.transform(input_df[num_cols])
+model = pickle.load(open("churn_model.pkl", "rb"))
+scaler = pickle.load(open("scaler.pkl", "rb"))
+features = pickle.load(open("features.pkl", "rb"))
 
 # =========================
-# PREDICTION
+# BUSINESS LOGIC
 # =========================
-if st.button("🚀 Predict Churn Risk"):
+def risk_level(prob):
+    if prob < 0.3:
+        return "Low Risk"
+    elif prob < 0.6:
+        return "Medium Risk"
+    else:
+        return "High Risk"
 
-    prob = model.predict_proba(input_df)[0][1]
+def action_plan(risk):
+    if risk == "High Risk":
+        return "📞 Immediate retention call + discount offer"
+    elif risk == "Medium Risk":
+        return "📧 Engagement email + usage monitoring"
+    else:
+        return "✅ No action required"
 
-    st.subheader("📊 Prediction Result")
+# =========================
+# SIDEBAR NAVIGATION
+# =========================
+menu = st.sidebar.radio(
+    "Navigation",
+    ["Single Customer Prediction", "Batch Prediction", "Business Dashboard"]
+)
 
-    colA, colB, colC = st.columns(3)
+# =========================
+# SINGLE PREDICTION PAGE
+# =========================
+if menu == "Single Customer Prediction":
 
-    with colA:
-        st.metric("Churn Probability", f"{prob:.2f}")
+    st.header("👤 Single Customer Risk Analysis")
 
-    with colB:
-        if prob < 0.3:
-            st.success("Low Risk")
-        elif prob < 0.7:
-            st.warning("Medium Risk")
-        else:
-            st.error("High Risk")
+    st.subheader("Enter Customer Information")
 
-    with colC:
-        st.metric("Decision", "Retain" if prob < 0.5 else "At Risk")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        tenure = st.number_input("Tenure (months)", 0, 100, 12)
+        monthly_charges = st.number_input("Monthly Charges", 0.0, 200.0, 70.0)
+        total_charges = st.number_input("Total Charges", 0.0, 10000.0, 1000.0)
+        is_month_to_month = st.selectbox("Contract Type (Month-to-Month)", ["No", "Yes"])
+        internet_service = st.selectbox("Internet Service", ["DSL", "Fiber Optic", "No"])
+
+    with col2:
+        payment_method = st.selectbox(
+            "Payment Method",
+            ["Electronic check", "Mailed check", "Bank transfer", "Credit card"]
+        )
+        total_services = st.slider("Total Services Subscribed", 0, 10, 3)
+        avg_monthly_spend = st.number_input("Average Monthly Spend", 0.0, 200.0, 70.0)
 
     # =========================
-    # SAFE SHAP EXPLANATION (FIXED)
+    # SIMPLE ENCODING (UI FRIENDLY)
     # =========================
-    st.subheader("🧠 Explainable AI (SHAP)")
+    contract = 1 if is_month_to_month == "Yes" else 0
 
-    try:
-        explainer = shap.TreeExplainer(model)
+    internet_map = {"DSL": 0, "Fiber Optic": 1, "No": 2}
+    payment_map = {
+        "Electronic check": 0,
+        "Mailed check": 1,
+        "Bank transfer": 2,
+        "Credit card": 3
+    }
 
-        # IMPORTANT FIX: use real input instead of fake zeros
-        shap_input = input_df.copy()
+    internet = internet_map[internet_service]
+    payment = payment_map[payment_method]
 
-        shap_values = explainer.shap_values(shap_input)
+    # =========================
+    # MODEL INPUT
+    # =========================
+    input_data = np.array([[
+        tenure,
+        monthly_charges,
+        total_charges,
+        contract,
+        internet,
+        payment,
+        total_services,
+        avg_monthly_spend
+    ]])
 
-        # FIX FOR OLD + NEW SHAP VERSIONS
-        if isinstance(shap_values, list):
-            shap_values = shap_values[1]
+    input_scaled = scaler.transform(input_data)
 
-        # Ensure correct shape (force matrix)
-        shap_values = np.array(shap_values)
+    # =========================
+    # PREDICTION
+    # =========================
+    if st.button("Analyze Risk"):
 
-        fig, ax = plt.subplots()
+        prob = model.predict_proba(input_scaled)[0][1]
+        pred = model.predict(input_scaled)[0]
 
-        shap.summary_plot(
-            shap_values,
-            shap_input,
-            show=False
+        risk = risk_level(prob)
+        action = action_plan(risk)
+
+        st.subheader("📌 Prediction Result")
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Churn Probability", f"{prob:.2f}")
+        c2.metric("Risk Level", risk)
+        c3.metric("Prediction", "Will Churn" if pred == 1 else "Will Stay")
+
+        st.success(action)
+
+        # =========================
+        # EXPLANATION SECTION (PLACEHOLDER FOR SHAP)
+        # =========================
+        st.subheader("🔍 Why this prediction? (Explainability)")
+
+        st.info(
+            "Top drivers typically include:\n"
+            "- Contract type (Month-to-month)\n"
+            "- High monthly charges\n"
+            "- Short tenure\n"
+            "- Fiber optic service usage\n\n"
+            "👉 Integrate SHAP values here for full transparency."
         )
 
-        st.pyplot(fig)
+# =========================
+# BATCH PREDICTION
+# =========================
+elif menu == "Batch Prediction":
 
-    except Exception as e:
-        st.warning("SHAP explanation could not be rendered in cloud environment.")
-        st.text(str(e))
+    st.header("📂 Batch Customer Risk Scoring")
+
+    file = st.file_uploader("Upload Customer CSV", type=["csv"])
+
+    if file is not None:
+
+        df = pd.read_csv(file)
+
+        try:
+            df = df[features]
+        except:
+            st.error("Uploaded file does not match required features.")
+            st.stop()
+
+        df_scaled = scaler.transform(df)
+
+        probs = model.predict_proba(df_scaled)[:, 1]
+        preds = model.predict(df_scaled)
+
+        def risk(p):
+            if p < 0.3:
+                return "Low Risk"
+            elif p < 0.6:
+                return "Medium Risk"
+            else:
+                return "High Risk"
+
+        df["Churn_Probability"] = probs
+        df["Prediction"] = preds
+        df["Risk_Level"] = df["Churn_Probability"].apply(risk)
+        df["Action"] = df["Risk_Level"].apply(action_plan)
+
+        st.subheader("Preview Results")
+        st.dataframe(df.head())
+
+        csv = df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            "Download Results",
+            csv,
+            "churn_predictions.csv",
+            "text/csv"
+        )
 
 # =========================
-# FOOTER
+# BUSINESS DASHBOARD
 # =========================
-st.markdown("---")
-st.markdown("Built with ❤️ for Customer Retention Analytics")
+elif menu == "Business Dashboard":
+
+    st.header("📊 Business Insights Dashboard")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("Total Customers", "7043")
+    col2.metric("Churn Rate", "26.5%")
+    col3.metric("High Risk Customers", "Approx. 1800")
+
+    st.subheader("📌 Key Business Insights")
+
+    st.markdown("""
+    - Month-to-month contracts significantly increase churn risk  
+    - Fiber optic users show higher churn probability  
+    - Higher monthly charges correlate with churn  
+    - Low tenure customers are most likely to leave  
+    """)
+
+    st.subheader("📊 Feature Importance (Illustrative)")
+
+    st.bar_chart({
+        "Contract Type": 0.35,
+        "Tenure": 0.25,
+        "Monthly Charges": 0.20,
+        "Internet Service": 0.10,
+        "Payment Method": 0.10
+    })
