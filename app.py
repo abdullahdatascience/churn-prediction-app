@@ -4,15 +4,14 @@ import numpy as np
 import joblib
 
 # =========================
-# PAGE CONFIG
+# CONFIG
 # =========================
 st.set_page_config(
-    page_title="Customer Churn AI System",
+    page_title="Churn Prediction System",
     layout="wide"
 )
 
-st.title("📊 Customer Retention & Churn Prediction System")
-st.markdown("AI-powered ML system using a trained pipeline (production ready).")
+st.title("📊 Customer Churn Prediction System")
 
 # =========================
 # LOAD PIPELINE
@@ -20,7 +19,7 @@ st.markdown("AI-powered ML system using a trained pipeline (production ready).")
 pipeline = joblib.load("churn_pipeline.pkl")
 
 # =========================
-# BUSINESS LOGIC
+# RISK FUNCTION
 # =========================
 def risk_level(prob):
     if prob < 0.3:
@@ -31,12 +30,9 @@ def risk_level(prob):
         return "High Risk"
 
 # =========================
-# NAVIGATION
+# MENU
 # =========================
-menu = st.sidebar.radio(
-    "Navigation",
-    ["Single Prediction", "Batch Prediction"]
-)
+menu = st.sidebar.radio("Menu", ["Single Prediction", "Batch Prediction"])
 
 # =========================
 # SINGLE PREDICTION
@@ -45,27 +41,21 @@ if menu == "Single Prediction":
 
     st.header("👤 Single Customer Prediction")
 
-    col1, col2 = st.columns(2)
+    gender = st.selectbox("Gender", ["Female", "Male"])
+    SeniorCitizen = st.selectbox("Senior Citizen", [0, 1])
+    Partner = st.selectbox("Partner", ["Yes", "No"])
+    Dependents = st.selectbox("Dependents", ["Yes", "No"])
+    tenure = st.number_input("Tenure", 0, 100, 12)
+    PhoneService = st.selectbox("Phone Service", ["Yes", "No"])
+    InternetService = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
+    Contract = st.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
+    PaymentMethod = st.selectbox(
+        "Payment Method",
+        ["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"]
+    )
+    MonthlyCharges = st.number_input("Monthly Charges", 0.0, 200.0, 70.0)
+    TotalCharges = st.number_input("Total Charges", 0.0, 10000.0, 1000.0)
 
-    with col1:
-        gender = st.selectbox("Gender", ["Female", "Male"])
-        SeniorCitizen = st.selectbox("Senior Citizen", [0, 1])
-        Partner = st.selectbox("Partner", ["Yes", "No"])
-        Dependents = st.selectbox("Dependents", ["Yes", "No"])
-        tenure = st.number_input("Tenure", 0, 100, 12)
-        PhoneService = st.selectbox("Phone Service", ["Yes", "No"])
-
-    with col2:
-        InternetService = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
-        Contract = st.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
-        PaymentMethod = st.selectbox(
-            "Payment Method",
-            ["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"]
-        )
-        MonthlyCharges = st.number_input("Monthly Charges", 0.0, 200.0, 70.0)
-        TotalCharges = st.number_input("Total Charges", 0.0, 10000.0, 1000.0)
-
-    # Create input dataframe (RAW FORMAT ONLY)
     input_df = pd.DataFrame([{
         "gender": gender,
         "SeniorCitizen": SeniorCitizen,
@@ -80,28 +70,26 @@ if menu == "Single Prediction":
         "TotalCharges": TotalCharges
     }])
 
-    if st.button("Predict Churn"):
+    if st.button("Predict"):
 
         prob = pipeline.predict_proba(input_df)[0][1]
         pred = pipeline.predict(input_df)[0]
 
         risk = risk_level(prob)
 
-        st.subheader("📌 Result")
-
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Probability", f"{prob:.2f}")
-        c2.metric("Risk Level", risk)
-        c3.metric("Prediction", "Will Churn" if pred == 1 else "Will Stay")
+        st.subheader("Result")
+        st.write("Probability:", round(prob, 2))
+        st.write("Risk:", risk)
+        st.write("Prediction:", "Churn" if pred == 1 else "No Churn")
 
 # =========================
-# BATCH PREDICTION
+# BATCH PREDICTION (FIXED)
 # =========================
 elif menu == "Batch Prediction":
 
-    st.header("📂 Batch Prediction System")
+    st.header("📂 Batch Prediction")
 
-    file = st.file_uploader("Upload CSV File", type=["csv"])
+    file = st.file_uploader("Upload CSV", type=["csv"])
 
     if file is not None:
 
@@ -109,13 +97,20 @@ elif menu == "Batch Prediction":
 
         try:
             # =========================
-            # FIX FEATURE MISMATCH
+            # FIX 1: CLEAN DIRTY VALUES
+            # =========================
+            df = df.replace(" ", np.nan)
+            df = df.replace("", np.nan)
+            df = df.fillna(0)
+
+            # =========================
+            # FIX 2: ALIGN FEATURES
             # =========================
             expected_cols = pipeline.feature_names_in_
             df = df.reindex(columns=expected_cols, fill_value=0)
 
             # =========================
-            # PREDICTIONS
+            # FIX 3: PREDICTION
             # =========================
             df["Churn_Probability"] = pipeline.predict_proba(df)[:, 1]
             df["Prediction"] = pipeline.predict(df)
@@ -124,12 +119,7 @@ elif menu == "Batch Prediction":
             st.dataframe(df.head())
 
             csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "Download Results",
-                csv,
-                "churn_predictions.csv",
-                "text/csv"
-            )
+            st.download_button("Download Results", csv, "churn_results.csv", "text/csv")
 
         except Exception as e:
             st.error(f"Error: {e}")
