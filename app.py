@@ -19,17 +19,17 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), "churn_pipeline.pkl")
 try:
     pipeline = joblib.load(MODEL_PATH)
 except Exception:
-    st.error("⚠️ Model loading failed. Check churn_pipeline.pkl file.")
+    st.error("⚠️ Model could not be loaded. Check churn_pipeline.pkl")
     st.stop()
 
 
 # =========================
-# GET MODEL FEATURES
+# MODEL FEATURES
 # =========================
 try:
     MODEL_FEATURES = list(pipeline.feature_names_in_)
 except:
-    st.error("⚠️ Model does not expose feature names. Re-train with sklearn >= 1.0")
+    st.error("⚠️ Model feature names not found.")
     st.stop()
 
 
@@ -47,38 +47,48 @@ def safe_read_csv(file):
 
 
 # =========================
-# CLEAN FUNCTION (LIGHT ONLY)
+# 🔥 FIXED CLEAN FUNCTION (NO FLOAT ERRORS)
 # =========================
 def clean_data(df):
     df = df.copy()
     df.columns = df.columns.str.strip()
-    df = df.replace(r"^\s*$", np.nan, regex=True)
-    df = df.fillna("Unknown")
+
+    for col in df.columns:
+
+        # Try numeric first
+        numeric_col = pd.to_numeric(df[col], errors="coerce")
+
+        # If mostly numeric → treat as numeric
+        if numeric_col.notna().sum() > len(df) * 0.5:
+            df[col] = numeric_col.fillna(0)
+
+        else:
+            df[col] = df[col].astype(str).str.strip()
+            df[col] = df[col].replace(["nan", "None", ""], "Unknown")
+
     return df
 
 
 # =========================
-# STRONG SCHEMA ALIGNMENT (KEY FIX)
+# ALIGN FEATURES SAFELY
 # =========================
 def align_schema(df):
     df = df.copy()
 
-    # drop extra columns safely
-    df = df[[col for col in df.columns if col in MODEL_FEATURES]]
+    # drop extra columns
+    df = df[[c for c in df.columns if c in MODEL_FEATURES]]
 
     # add missing columns
-    for col in MODEL_FEATURES:
-        if col not in df.columns:
-            df[col] = "Unknown"
+    for c in MODEL_FEATURES:
+        if c not in df.columns:
+            df[c] = "Unknown"
 
-    # reorder exactly
-    df = df[MODEL_FEATURES]
-
-    return df
+    # reorder
+    return df[MODEL_FEATURES]
 
 
 # =========================
-# RISK LEVEL
+# RISK FUNCTION
 # =========================
 def risk_level(p):
     if p < 0.3:
@@ -102,22 +112,18 @@ menu = st.sidebar.radio(
 # =========================================================
 if menu == "📊 Dashboard":
 
-    file = st.file_uploader("Upload dataset", type=["csv"])
+    file = st.file_uploader("Upload CSV", type=["csv"])
 
     if file:
         df, error = safe_read_csv(file)
 
         if error:
-            st.error("⚠️ Invalid or empty file")
+            st.error("⚠️ Invalid file")
             st.stop()
 
         df = clean_data(df)
 
         st.metric("Total Rows", len(df))
-
-        if "Churn" in df.columns:
-            churn_rate = (df["Churn"].astype(str).str.lower() == "yes").mean()
-            st.metric("Churn Rate", f"{churn_rate:.2%}")
 
 
 # =========================================================
@@ -186,11 +192,8 @@ elif menu == "👤 Single Prediction":
             prob = pipeline.predict_proba(input_df)[0][1]
             pred = pipeline.predict(input_df)[0]
 
-            col1, col2, col3 = st.columns(3)
-
-            col1.metric("Churn Probability", f"{prob:.2f}")
-            col2.metric("Risk Level", risk_level(prob))
-            col3.metric("Decision", "Will Churn" if pred == 1 else "Will Stay")
+            st.metric("Churn Probability", f"{prob:.2f}")
+            st.success("Will Churn" if pred == 1 else "Will Stay")
 
         except Exception as e:
             st.error(f"⚠️ Prediction failed: {str(e)}")
@@ -208,26 +211,24 @@ elif menu == "📂 Batch Prediction":
         df, error = safe_read_csv(file)
 
         if error:
-            st.error("⚠️ Invalid or empty file")
+            st.error("⚠️ Invalid file")
             st.stop()
 
         if st.button("Run Prediction"):
 
             try:
                 df_clean = clean_data(df)
-
-                # 🔥 KEY FIX
                 df_model = align_schema(df_clean)
 
                 df["Churn_Probability"] = pipeline.predict_proba(df_model)[:, 1]
                 df["Prediction"] = pipeline.predict(df_model)
                 df["Risk_Level"] = df["Churn_Probability"].apply(risk_level)
 
-                st.success("Prediction completed successfully")
+                st.success("Prediction successful")
                 st.dataframe(df.head())
 
                 csv = df.to_csv(index=False).encode("utf-8")
-                st.download_button("Download Results", csv, "churn_results.csv", "text/csv")
+                st.download_button("Download Results", csv, "results.csv", "text/csv")
 
             except Exception as e:
                 st.error(f"⚠️ Prediction failed: {str(e)}")
