@@ -9,7 +9,6 @@ import matplotlib.pyplot as plt
 # PAGE CONFIG
 # =========================
 st.set_page_config(page_title="Churn AI Dashboard PRO", layout="wide")
-
 st.title("📊 Customer Churn Prediction System (PRO DASHBOARD)")
 
 # =========================
@@ -19,12 +18,15 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), "churn_pipeline.pkl")
 
 try:
     pipeline = joblib.load(MODEL_PATH)
+    EXPECTED_COLS = list(pipeline.feature_names_in_)
 except Exception as e:
     st.error(f"❌ Model load failed: {e}")
     st.stop()
 
+NUMERIC_COLS = ["SeniorCitizen", "tenure", "MonthlyCharges", "TotalCharges"]
+
 # =========================
-# CLEANING FUNCTION
+# CLEANING FUNCTIONS
 # =========================
 def clean_data(df):
     df = df.copy()
@@ -36,7 +38,34 @@ def clean_data(df):
         else:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    return df.fillna(0)
+    return df
+
+def align_columns(df):
+    return df.reindex(columns=EXPECTED_COLS)
+
+def final_preprocess(df):
+    df = align_columns(df)
+
+    # fix object columns
+    for col in df.columns:
+        if df[col].dtype == "object":
+            df[col] = df[col].astype(str).str.strip()
+
+    df = df.replace(["nan", "NaN", "None"], np.nan)
+
+    # numeric fix
+    for col in NUMERIC_COLS:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df[col] = df[col].fillna(0)
+
+    # categorical fill
+    for col in df.columns:
+        if col not in NUMERIC_COLS:
+            df[col] = df[col].fillna("No")
+
+    df = df.fillna(0)
+    return df
 
 # =========================
 # RISK FUNCTION
@@ -49,16 +78,16 @@ def risk_level(p):
     return "High Risk"
 
 # =========================
-# SIDEBAR NAVIGATION
+# SIDEBAR
 # =========================
 menu = st.sidebar.radio(
     "Navigation",
     ["📊 Dashboard", "👤 Single Prediction", "📂 Batch Prediction"]
 )
 
-# =========================================================
+# =========================
 # DASHBOARD
-# =========================================================
+# =========================
 if menu == "📊 Dashboard":
 
     st.header("Business Insights Dashboard")
@@ -81,13 +110,13 @@ if menu == "📊 Dashboard":
             st.metric("Churn Rate", f"{churn_rate:.2%}")
 
         with col3:
-            st.metric("Avg Monthly Charges", f"{df['MonthlyCharges'].mean():.2f}")
+            if "MonthlyCharges" in df.columns:
+                st.metric("Avg Monthly Charges", f"{df['MonthlyCharges'].mean():.2f}")
 
-        # Charts
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("Monthly Charges Distribution")
+            st.subheader("Monthly Charges")
             fig, ax = plt.subplots()
             ax.hist(df["MonthlyCharges"], bins=20)
             st.pyplot(fig)
@@ -98,9 +127,9 @@ if menu == "📊 Dashboard":
             ax.hist(df["tenure"], bins=20)
             st.pyplot(fig)
 
-# =========================================================
+# =========================
 # SINGLE PREDICTION
-# =========================================================
+# =========================
 elif menu == "👤 Single Prediction":
 
     st.header("Customer Churn Prediction")
@@ -155,46 +184,43 @@ elif menu == "👤 Single Prediction":
         "TotalCharges": TotalCharges
     }])
 
-    input_df = clean_data(input_df)
-
     if st.button("Predict"):
+
+        input_df = final_preprocess(input_df)
 
         prob = pipeline.predict_proba(input_df)[0][1]
         pred = pipeline.predict(input_df)[0]
-
-        st.subheader("Prediction Result")
 
         col1, col2, col3 = st.columns(3)
 
         col1.metric("Churn Probability", f"{prob:.2f}")
         col2.metric("Risk Level", risk_level(prob))
-        col3.metric("Decision", "Will Churn" if pred == 1 else "Will Stay")
+        col3.metric("Prediction", "Churn" if pred == 1 else "No Churn")
 
-# =========================================================
+# =========================
 # BATCH PREDICTION
-# =========================================================
+# =========================
 elif menu == "📂 Batch Prediction":
 
-    st.header("Batch Customer Prediction")
+    st.header("Batch Prediction")
 
     file = st.file_uploader("Upload CSV", type=["csv"])
 
     if file:
 
         df = pd.read_csv(file)
-        df_clean = clean_data(df)
 
         if st.button("Run Prediction"):
+
+            df_clean = final_preprocess(df)
 
             df["Churn_Probability"] = pipeline.predict_proba(df_clean)[:, 1]
             df["Prediction"] = pipeline.predict(df_clean)
             df["Risk_Level"] = df["Churn_Probability"].apply(risk_level)
 
-            st.success("Prediction completed")
-
+            st.success("Prediction completed successfully")
             st.dataframe(df.head())
 
-            # Charts
             col1, col2 = st.columns(2)
 
             with col1:
@@ -204,10 +230,10 @@ elif menu == "📂 Batch Prediction":
                 st.pyplot(fig)
 
             with col2:
-                st.subheader("Churn Probability Distribution")
+                st.subheader("Probability Distribution")
                 fig, ax = plt.subplots()
                 ax.hist(df["Churn_Probability"], bins=20)
                 st.pyplot(fig)
 
             csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download Results", csv, "churn_results.csv", "text/csv")
+            st.download_button("Download Results", csv, "results.csv", "text/csv")
