@@ -13,40 +13,35 @@ st.title("📊 Customer Churn Prediction System (PRO DASHBOARD)")
 
 
 # =========================
-# SAFE MODEL LOADING
+# LOAD MODEL
 # =========================
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "churn_pipeline.pkl")
 
 try:
     pipeline = joblib.load(MODEL_PATH)
 except Exception:
-    st.error("⚠️ Model is not available right now. Please contact admin or check model file.")
+    st.error("⚠️ Model could not be loaded. Please check system setup.")
     st.stop()
 
 
 # =========================
-# SAFE FILE LOADER
+# SAFE CSV LOADER
 # =========================
 def safe_read_csv(file):
     try:
         df = pd.read_csv(file)
-
         if df is None or df.empty:
             return None, "empty"
-
         return df, None
-
     except Exception:
         return None, "invalid"
 
 
 # =========================
-# CLEANING FUNCTION
+# CLEANING
 # =========================
 def clean_data(df):
     df = df.copy()
-
-    # normalize columns
     df.columns = df.columns.str.strip().str.lower().str.replace(" ", "")
 
     for col in df.columns:
@@ -59,37 +54,49 @@ def clean_data(df):
 
 
 # =========================
-# AUTO FEATURE ALIGNMENT
+# FIXED UNIVERSAL PREPROCESSOR
 # =========================
-def auto_align_features(df, pipeline):
-    """
-    Makes ANY dataset compatible with trained model
-    """
-    try:
-        model_features = pipeline.feature_names_in_
-    except Exception:
-        st.error("⚠️ Model feature mapping not available.")
-        st.stop()
-
+def prepare_input(df, pipeline):
     df = df.copy()
 
+    # normalize columns
     df.columns = df.columns.str.strip().str.lower().str.replace(" ", "")
 
-    aligned = {}
+    # universal mapping (VERY IMPORTANT FIX)
+    mapping = {
+        "yes": 1,
+        "no": 0,
+        "male": 1,
+        "female": 0
+    }
 
-    for feature in model_features:
-        key = feature.lower().replace(" ", "")
+    # convert simple categorical values
+    for col in df.columns:
+        if df[col].dtype == "object":
+            df[col] = df[col].str.lower().map(lambda x: mapping.get(x, x))
 
-        if key in df.columns:
-            aligned[feature] = df[key]
-        else:
-            aligned[feature] = 0  # safe default
+    # try safe alignment with model
+    try:
+        model_features = pipeline.feature_names_in_
+        aligned = {}
 
-    return pd.DataFrame(aligned)
+        for f in model_features:
+            key = f.lower().replace(" ", "")
+
+            if key in df.columns:
+                aligned[f] = df[key]
+            else:
+                aligned[f] = 0  # safe fallback
+
+        return pd.DataFrame(aligned)
+
+    except Exception:
+        # fallback if model doesn't expose feature names
+        return df.fillna(0)
 
 
 # =========================
-# RISK FUNCTION
+# RISK LEVEL
 # =========================
 def risk_level(p):
     if p < 0.3:
@@ -121,52 +128,23 @@ if menu == "📊 Dashboard":
         df, error = safe_read_csv(file)
 
         if error == "invalid":
-            st.error("⚠️ Invalid file format. Please upload a valid CSV file.")
+            st.error("⚠️ Invalid file format.")
             st.stop()
 
         if error == "empty":
-            st.warning("⚠️ Uploaded file is empty.")
+            st.warning("⚠️ File is empty.")
             st.stop()
 
         df = clean_data(df)
 
-        col1, col2, col3 = st.columns(3)
+        st.metric("Total Customers", len(df))
 
-        with col1:
-            st.metric("Total Customers", len(df))
-
-        with col2:
-            churn_rate = 0
-            if "churn" in df.columns:
-                churn_rate = (df["churn"].astype(str).str.lower() == "yes").mean()
+        if "churn" in df.columns:
+            churn_rate = (df["churn"].astype(str).str.lower() == "yes").mean()
             st.metric("Churn Rate", f"{churn_rate:.2%}")
 
-        with col3:
-            if "monthlycharges" in df.columns:
-                st.metric("Avg Monthly Charges", f"{df['monthlycharges'].mean():.2f}")
-            else:
-                st.metric("Avg Monthly Charges", "N/A")
-
-        # Charts
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.subheader("Monthly Charges Distribution")
-            if "monthlycharges" in df.columns:
-                fig, ax = plt.subplots()
-                ax.hist(df["monthlycharges"], bins=20)
-                st.pyplot(fig)
-            else:
-                st.info("MonthlyCharges column not found.")
-
-        with col2:
-            st.subheader("Tenure Distribution")
-            if "tenure" in df.columns:
-                fig, ax = plt.subplots()
-                ax.hist(df["tenure"], bins=20)
-                st.pyplot(fig)
-            else:
-                st.info("Tenure column not found.")
+        if "monthlycharges" in df.columns:
+            st.metric("Avg Monthly Charges", f"{df['monthlycharges'].mean():.2f}")
 
 
 # =========================================================
@@ -228,10 +206,10 @@ elif menu == "👤 Single Prediction":
 
     if st.button("Predict"):
 
-        input_df = clean_data(input_df)
-        input_df = auto_align_features(input_df, pipeline)
-
         try:
+            input_df = clean_data(input_df)
+            input_df = prepare_input(input_df, pipeline)
+
             prob = pipeline.predict_proba(input_df)[0][1]
             pred = pipeline.predict(input_df)[0]
 
@@ -242,7 +220,7 @@ elif menu == "👤 Single Prediction":
             col3.metric("Decision", "Will Churn" if pred == 1 else "Will Stay")
 
         except Exception:
-            st.error("⚠️ Prediction failed. Please check input data format.")
+            st.error("⚠️ Prediction failed. Please check input values or model compatibility.")
 
 
 # =========================================================
@@ -259,7 +237,7 @@ elif menu == "📂 Batch Prediction":
         df, error = safe_read_csv(file)
 
         if error == "invalid":
-            st.error("⚠️ Invalid file format. Please upload a valid CSV.")
+            st.error("⚠️ Invalid file format.")
             st.stop()
 
         if error == "empty":
@@ -268,34 +246,19 @@ elif menu == "📂 Batch Prediction":
 
         if st.button("Run Prediction"):
 
-            df_clean = clean_data(df)
-            df_clean = auto_align_features(df_clean, pipeline)
-
             try:
+                df_clean = clean_data(df)
+                df_clean = prepare_input(df_clean, pipeline)
+
                 df["Churn_Probability"] = pipeline.predict_proba(df_clean)[:, 1]
                 df["Prediction"] = pipeline.predict(df_clean)
                 df["Risk_Level"] = df["Churn_Probability"].apply(risk_level)
 
                 st.success("Prediction completed successfully")
-
                 st.dataframe(df.head())
-
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    st.subheader("Risk Distribution")
-                    fig, ax = plt.subplots()
-                    df["Risk_Level"].value_counts().plot(kind="bar", ax=ax)
-                    st.pyplot(fig)
-
-                with col2:
-                    st.subheader("Churn Probability Distribution")
-                    fig, ax = plt.subplots()
-                    ax.hist(df["Churn_Probability"], bins=20)
-                    st.pyplot(fig)
 
                 csv = df.to_csv(index=False).encode("utf-8")
                 st.download_button("Download Results", csv, "churn_results.csv", "text/csv")
 
             except Exception:
-                st.error("⚠️ Prediction failed. Please check dataset structure.")
+                st.error("⚠️ Prediction failed due to dataset mismatch.")
