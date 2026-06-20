@@ -18,6 +18,9 @@ st.title("📊 Customer Churn Prediction System")
 # =========================
 pipeline = joblib.load("churn_pipeline.pkl")
 
+# expected columns (from training)
+FEATURES = list(pipeline.feature_names_in_)
+
 # =========================
 # RISK FUNCTION
 # =========================
@@ -45,17 +48,33 @@ if menu == "Single Prediction":
     SeniorCitizen = st.selectbox("Senior Citizen", [0, 1])
     Partner = st.selectbox("Partner", ["Yes", "No"])
     Dependents = st.selectbox("Dependents", ["Yes", "No"])
+
     tenure = st.number_input("Tenure", 0, 100, 12)
     PhoneService = st.selectbox("Phone Service", ["Yes", "No"])
+    MultipleLines = st.selectbox("Multiple Lines", ["Yes", "No"])
+
     InternetService = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
+    OnlineSecurity = st.selectbox("Online Security", ["Yes", "No"])
+    OnlineBackup = st.selectbox("Online Backup", ["Yes", "No"])
+    DeviceProtection = st.selectbox("Device Protection", ["Yes", "No"])
+    TechSupport = st.selectbox("Tech Support", ["Yes", "No"])
+    StreamingTV = st.selectbox("Streaming TV", ["Yes", "No"])
+    StreamingMovies = st.selectbox("Streaming Movies", ["Yes", "No"])
+
     Contract = st.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
+    PaperlessBilling = st.selectbox("Paperless Billing", ["Yes", "No"])
+
     PaymentMethod = st.selectbox(
         "Payment Method",
         ["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"]
     )
+
     MonthlyCharges = st.number_input("Monthly Charges", 0.0, 200.0, 70.0)
     TotalCharges = st.number_input("Total Charges", 0.0, 10000.0, 1000.0)
 
+    # =========================
+    # CREATE INPUT DF
+    # =========================
     input_df = pd.DataFrame([{
         "gender": gender,
         "SeniorCitizen": SeniorCitizen,
@@ -63,12 +82,26 @@ if menu == "Single Prediction":
         "Dependents": Dependents,
         "tenure": tenure,
         "PhoneService": PhoneService,
+        "MultipleLines": MultipleLines,
         "InternetService": InternetService,
+        "OnlineSecurity": OnlineSecurity,
+        "OnlineBackup": OnlineBackup,
+        "DeviceProtection": DeviceProtection,
+        "TechSupport": TechSupport,
+        "StreamingTV": StreamingTV,
+        "StreamingMovies": StreamingMovies,
         "Contract": Contract,
+        "PaperlessBilling": PaperlessBilling,
         "PaymentMethod": PaymentMethod,
         "MonthlyCharges": MonthlyCharges,
         "TotalCharges": TotalCharges
     }])
+
+    # IMPORTANT FIX: align columns
+    input_df = input_df.reindex(columns=FEATURES)
+
+    # handle missing safely
+    input_df = input_df.fillna("No")
 
     if st.button("Predict"):
 
@@ -83,7 +116,7 @@ if menu == "Single Prediction":
         st.write("Prediction:", "Churn" if pred == 1 else "No Churn")
 
 # =========================
-# BATCH PREDICTION (FIXED)
+# BATCH PREDICTION
 # =========================
 elif menu == "Batch Prediction":
 
@@ -96,22 +129,14 @@ elif menu == "Batch Prediction":
         df = pd.read_csv(file)
 
         try:
-            # =========================
-            # FIX 1: CLEAN DIRTY VALUES
-            # =========================
+            # clean spaces
             df = df.replace(" ", np.nan)
-            df = df.replace("", np.nan)
-            df = df.fillna(0)
+            df = df.fillna("No")
 
-            # =========================
-            # FIX 2: ALIGN FEATURES
-            # =========================
-            expected_cols = pipeline.feature_names_in_
-            df = df.reindex(columns=expected_cols, fill_value=0)
+            # align columns (CRITICAL FIX)
+            df = df.reindex(columns=FEATURES)
 
-            # =========================
-            # FIX 3: PREDICTION
-            # =========================
+            # predictions
             df["Churn_Probability"] = pipeline.predict_proba(df)[:, 1]
             df["Prediction"] = pipeline.predict(df)
             df["Risk_Level"] = df["Churn_Probability"].apply(risk_level)
@@ -119,7 +144,12 @@ elif menu == "Batch Prediction":
             st.dataframe(df.head())
 
             csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download Results", csv, "churn_results.csv", "text/csv")
+            st.download_button(
+                "Download Results",
+                csv,
+                "churn_results.csv",
+                "text/csv"
+            )
 
         except Exception as e:
             st.error(f"Error: {e}")
