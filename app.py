@@ -17,8 +17,6 @@ st.title("📊 Customer Churn Prediction System")
 # LOAD PIPELINE
 # =========================
 pipeline = joblib.load("churn_pipeline.pkl")
-
-# expected columns (from training)
 FEATURES = list(pipeline.feature_names_in_)
 
 # =========================
@@ -73,7 +71,7 @@ if menu == "Single Prediction":
     TotalCharges = st.number_input("Total Charges", 0.0, 10000.0, 1000.0)
 
     # =========================
-    # CREATE INPUT DF
+    # BUILD INPUT DF
     # =========================
     input_df = pd.DataFrame([{
         "gender": gender,
@@ -97,11 +95,17 @@ if menu == "Single Prediction":
         "TotalCharges": TotalCharges
     }])
 
-    # IMPORTANT FIX: align columns
+    # ALIGN FEATURES (CRITICAL FIX)
     input_df = input_df.reindex(columns=FEATURES)
 
-    # handle missing safely
-    input_df = input_df.fillna("No")
+    # FIX TYPES (CRITICAL FIX)
+    numeric_cols = ["SeniorCitizen", "tenure", "MonthlyCharges", "TotalCharges"]
+
+    for col in FEATURES:
+        if col in numeric_cols:
+            input_df[col] = pd.to_numeric(input_df[col], errors="coerce")
+        else:
+            input_df[col] = input_df[col].astype(str)
 
     if st.button("Predict"):
 
@@ -129,14 +133,22 @@ elif menu == "Batch Prediction":
         df = pd.read_csv(file)
 
         try:
-            # clean spaces
+            # CLEAN DATA
             df = df.replace(" ", np.nan)
-            df = df.fillna("No")
 
-            # align columns (CRITICAL FIX)
+            # ALIGN FEATURES
             df = df.reindex(columns=FEATURES)
 
-            # predictions
+            numeric_cols = ["SeniorCitizen", "tenure", "MonthlyCharges", "TotalCharges"]
+
+            # FIX TYPES
+            for col in FEATURES:
+                if col in numeric_cols:
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                else:
+                    df[col] = df[col].astype(str)
+
+            # PREDICTIONS
             df["Churn_Probability"] = pipeline.predict_proba(df)[:, 1]
             df["Prediction"] = pipeline.predict(df)
             df["Risk_Level"] = df["Churn_Probability"].apply(risk_level)
