@@ -19,12 +19,22 @@ MODEL_PATH = os.path.join(os.path.dirname(__file__), "churn_pipeline.pkl")
 try:
     pipeline = joblib.load(MODEL_PATH)
 except Exception:
-    st.error("⚠️ Model could not be loaded. Check churn_pipeline.pkl file.")
+    st.error("⚠️ Model loading failed. Check churn_pipeline.pkl file.")
     st.stop()
 
 
 # =========================
-# SAFE FILE LOADER
+# GET MODEL FEATURES
+# =========================
+try:
+    MODEL_FEATURES = list(pipeline.feature_names_in_)
+except:
+    st.error("⚠️ Model does not expose feature names. Re-train with sklearn >= 1.0")
+    st.stop()
+
+
+# =========================
+# SAFE CSV LOADER
 # =========================
 def safe_read_csv(file):
     try:
@@ -32,19 +42,38 @@ def safe_read_csv(file):
         if df is None or df.empty:
             return None, "empty"
         return df, None
-    except Exception:
+    except:
         return None, "invalid"
 
 
 # =========================
-# CLEAN ONLY (NO FEATURE CHANGE)
-# IMPORTANT: DO NOT TRANSFORM VALUES
+# CLEAN FUNCTION (LIGHT ONLY)
 # =========================
 def clean_data(df):
     df = df.copy()
     df.columns = df.columns.str.strip()
     df = df.replace(r"^\s*$", np.nan, regex=True)
     df = df.fillna("Unknown")
+    return df
+
+
+# =========================
+# STRONG SCHEMA ALIGNMENT (KEY FIX)
+# =========================
+def align_schema(df):
+    df = df.copy()
+
+    # drop extra columns safely
+    df = df[[col for col in df.columns if col in MODEL_FEATURES]]
+
+    # add missing columns
+    for col in MODEL_FEATURES:
+        if col not in df.columns:
+            df[col] = "Unknown"
+
+    # reorder exactly
+    df = df[MODEL_FEATURES]
+
     return df
 
 
@@ -78,12 +107,8 @@ if menu == "📊 Dashboard":
     if file:
         df, error = safe_read_csv(file)
 
-        if error == "invalid":
-            st.error("⚠️ Invalid file format")
-            st.stop()
-
-        if error == "empty":
-            st.warning("⚠️ Empty file")
+        if error:
+            st.error("⚠️ Invalid or empty file")
             st.stop()
 
         df = clean_data(df)
@@ -156,6 +181,7 @@ elif menu == "👤 Single Prediction":
 
         try:
             input_df = clean_data(input_df)
+            input_df = align_schema(input_df)
 
             prob = pipeline.predict_proba(input_df)[0][1]
             pred = pipeline.predict(input_df)[0]
@@ -166,8 +192,8 @@ elif menu == "👤 Single Prediction":
             col2.metric("Risk Level", risk_level(prob))
             col3.metric("Decision", "Will Churn" if pred == 1 else "Will Stay")
 
-        except Exception:
-            st.error("⚠️ Prediction failed. Check input format or model compatibility.")
+        except Exception as e:
+            st.error(f"⚠️ Prediction failed: {str(e)}")
 
 
 # =========================================================
@@ -182,7 +208,7 @@ elif menu == "📂 Batch Prediction":
         df, error = safe_read_csv(file)
 
         if error:
-            st.error("⚠️ File issue detected")
+            st.error("⚠️ Invalid or empty file")
             st.stop()
 
         if st.button("Run Prediction"):
@@ -190,15 +216,18 @@ elif menu == "📂 Batch Prediction":
             try:
                 df_clean = clean_data(df)
 
-                df["Churn_Probability"] = pipeline.predict_proba(df_clean)[:, 1]
-                df["Prediction"] = pipeline.predict(df_clean)
+                # 🔥 KEY FIX
+                df_model = align_schema(df_clean)
+
+                df["Churn_Probability"] = pipeline.predict_proba(df_model)[:, 1]
+                df["Prediction"] = pipeline.predict(df_model)
                 df["Risk_Level"] = df["Churn_Probability"].apply(risk_level)
 
-                st.success("Prediction completed")
+                st.success("Prediction completed successfully")
                 st.dataframe(df.head())
 
                 csv = df.to_csv(index=False).encode("utf-8")
                 st.download_button("Download Results", csv, "churn_results.csv", "text/csv")
 
-            except Exception:
-                st.error("⚠️ Prediction failed. Dataset does not match training schema.")
+            except Exception as e:
+                st.error(f"⚠️ Prediction failed: {str(e)}")
