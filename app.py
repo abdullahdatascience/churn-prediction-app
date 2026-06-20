@@ -6,11 +6,7 @@ import joblib
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(
-    page_title="Churn Prediction System",
-    layout="wide"
-)
-
+st.set_page_config(page_title="Churn Prediction System", layout="wide")
 st.title("📊 Customer Churn Prediction System")
 
 # =========================
@@ -18,6 +14,9 @@ st.title("📊 Customer Churn Prediction System")
 # =========================
 pipeline = joblib.load("churn_pipeline.pkl")
 FEATURES = list(pipeline.feature_names_in_)
+
+# numeric columns (important fix)
+NUMERIC_COLS = ["SeniorCitizen", "tenure", "MonthlyCharges", "TotalCharges"]
 
 # =========================
 # RISK FUNCTION
@@ -27,13 +26,37 @@ def risk_level(prob):
         return "Low Risk"
     elif prob < 0.6:
         return "Medium Risk"
-    else:
-        return "High Risk"
+    return "High Risk"
 
 # =========================
 # MENU
 # =========================
 menu = st.sidebar.radio("Menu", ["Single Prediction", "Batch Prediction"])
+
+# =========================
+# CLEAN FUNCTION (IMPORTANT FIX)
+# =========================
+def clean_data(df):
+    df = df.replace([" ", ""], np.nan)
+    df = df.reindex(columns=FEATURES)
+
+    for col in FEATURES:
+        if col in NUMERIC_COLS:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        else:
+            df[col] = df[col].astype(str)
+
+    # fill NaN safely
+    df[NUMERIC_COLS] = df[NUMERIC_COLS].fillna(0)
+
+    for col in FEATURES:
+        if col not in NUMERIC_COLS:
+            df[col] = df[col].fillna("No")
+
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df = df.fillna(0)
+
+    return df
 
 # =========================
 # SINGLE PREDICTION
@@ -70,9 +93,6 @@ if menu == "Single Prediction":
     MonthlyCharges = st.number_input("Monthly Charges", 0.0, 200.0, 70.0)
     TotalCharges = st.number_input("Total Charges", 0.0, 10000.0, 1000.0)
 
-    # =========================
-    # BUILD INPUT DF
-    # =========================
     input_df = pd.DataFrame([{
         "gender": gender,
         "SeniorCitizen": SeniorCitizen,
@@ -95,28 +115,16 @@ if menu == "Single Prediction":
         "TotalCharges": TotalCharges
     }])
 
-    # ALIGN FEATURES (CRITICAL FIX)
-    input_df = input_df.reindex(columns=FEATURES)
-
-    # FIX TYPES (CRITICAL FIX)
-    numeric_cols = ["SeniorCitizen", "tenure", "MonthlyCharges", "TotalCharges"]
-
-    for col in FEATURES:
-        if col in numeric_cols:
-            input_df[col] = pd.to_numeric(input_df[col], errors="coerce")
-        else:
-            input_df[col] = input_df[col].astype(str)
+    input_df = clean_data(input_df)
 
     if st.button("Predict"):
 
         prob = pipeline.predict_proba(input_df)[0][1]
         pred = pipeline.predict(input_df)[0]
 
-        risk = risk_level(prob)
-
         st.subheader("Result")
         st.write("Probability:", round(prob, 2))
-        st.write("Risk:", risk)
+        st.write("Risk:", risk_level(prob))
         st.write("Prediction:", "Churn" if pred == 1 else "No Churn")
 
 # =========================
@@ -133,22 +141,8 @@ elif menu == "Batch Prediction":
         df = pd.read_csv(file)
 
         try:
-            # CLEAN DATA
-            df = df.replace(" ", np.nan)
+            df = clean_data(df)
 
-            # ALIGN FEATURES
-            df = df.reindex(columns=FEATURES)
-
-            numeric_cols = ["SeniorCitizen", "tenure", "MonthlyCharges", "TotalCharges"]
-
-            # FIX TYPES
-            for col in FEATURES:
-                if col in numeric_cols:
-                    df[col] = pd.to_numeric(df[col], errors="coerce")
-                else:
-                    df[col] = df[col].astype(str)
-
-            # PREDICTIONS
             df["Churn_Probability"] = pipeline.predict_proba(df)[:, 1]
             df["Prediction"] = pipeline.predict(df)
             df["Risk_Level"] = df["Churn_Probability"].apply(risk_level)
@@ -156,12 +150,7 @@ elif menu == "Batch Prediction":
             st.dataframe(df.head())
 
             csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "Download Results",
-                csv,
-                "churn_results.csv",
-                "text/csv"
-            )
+            st.download_button("Download Results", csv, "churn_results.csv", "text/csv")
 
         except Exception as e:
             st.error(f"Error: {e}")
