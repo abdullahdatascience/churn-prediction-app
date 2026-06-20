@@ -2,39 +2,43 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import matplotlib.pyplot as plt
 
 # =========================
 # CONFIG
 # =========================
-st.set_page_config(page_title="Churn Prediction System", layout="wide")
-st.title("📊 Customer Churn Prediction System")
+st.set_page_config(page_title="Churn AI Dashboard", layout="wide")
+
+st.title("📊 Customer Churn Prediction System (PRO)")
 
 # =========================
-# LOAD PIPELINE
+# SAFE MODEL LOAD
 # =========================
-pipeline = joblib.load("churn_pipeline.pkl")
-FEATURES = list(pipeline.feature_names_in_)
+try:
+    pipeline = joblib.load("churn_pipeline.pkl")
+    FEATURES = list(pipeline.feature_names_in_)
+except Exception:
+    st.error("❌ Model file not found or corrupted.")
+    st.stop()
 
-# numeric columns (important fix)
 NUMERIC_COLS = ["SeniorCitizen", "tenure", "MonthlyCharges", "TotalCharges"]
 
 # =========================
-# RISK FUNCTION
+# SAFE CSV LOADER
 # =========================
-def risk_level(prob):
-    if prob < 0.3:
-        return "Low Risk"
-    elif prob < 0.6:
-        return "Medium Risk"
-    return "High Risk"
+def safe_read(file):
+    encodings = ["utf-8", "latin1", "ISO-8859-1"]
+
+    for enc in encodings:
+        try:
+            return pd.read_csv(file, encoding=enc)
+        except:
+            continue
+
+    return None
 
 # =========================
-# MENU
-# =========================
-menu = st.sidebar.radio("Menu", ["Single Prediction", "Batch Prediction"])
-
-# =========================
-# CLEAN FUNCTION (IMPORTANT FIX)
+# DATA CLEANER
 # =========================
 def clean_data(df):
     df = df.replace([" ", ""], np.nan)
@@ -46,7 +50,7 @@ def clean_data(df):
         else:
             df[col] = df[col].astype(str)
 
-    # fill NaN safely
+    # fill missing values safely
     df[NUMERIC_COLS] = df[NUMERIC_COLS].fillna(0)
 
     for col in FEATURES:
@@ -59,9 +63,61 @@ def clean_data(df):
     return df
 
 # =========================
+# RISK LEVEL
+# =========================
+def risk_level(p):
+    if p < 0.3:
+        return "Low Risk"
+    elif p < 0.6:
+        return "Medium Risk"
+    return "High Risk"
+
+# =========================
+# SIDEBAR
+# =========================
+menu = st.sidebar.radio("Menu", ["Dashboard", "Single Prediction", "Batch Prediction"])
+
+# =========================
+# DASHBOARD
+# =========================
+if menu == "Dashboard":
+    st.header("📊 Business Insights Dashboard")
+
+    st.markdown("Upload dataset to see insights")
+
+    file = st.file_uploader("Upload CSV for Analysis", type=["csv"])
+
+    if file:
+        df = safe_read(file)
+
+        if df is None:
+            st.error("❌ Cannot read file. Please upload valid CSV.")
+            st.stop()
+
+        df = clean_data(df)
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.subheader("Churn Distribution")
+
+            churn_counts = df.get("Churn", pd.Series(["No"] * len(df))).value_counts()
+
+            fig, ax = plt.subplots()
+            ax.bar(churn_counts.index.astype(str), churn_counts.values)
+            st.pyplot(fig)
+
+        with col2:
+            st.subheader("Monthly Charges Distribution")
+
+            fig, ax = plt.subplots()
+            ax.hist(df["MonthlyCharges"], bins=20)
+            st.pyplot(fig)
+
+# =========================
 # SINGLE PREDICTION
 # =========================
-if menu == "Single Prediction":
+elif menu == "Single Prediction":
 
     st.header("👤 Single Customer Prediction")
 
@@ -123,7 +179,7 @@ if menu == "Single Prediction":
         pred = pipeline.predict(input_df)[0]
 
         st.subheader("Result")
-        st.write("Probability:", round(prob, 2))
+        st.metric("Churn Probability", f"{prob:.2f}")
         st.write("Risk:", risk_level(prob))
         st.write("Prediction:", "Churn" if pred == 1 else "No Churn")
 
@@ -136,21 +192,39 @@ elif menu == "Batch Prediction":
 
     file = st.file_uploader("Upload CSV", type=["csv"])
 
-    if file is not None:
+    if file:
 
-        df = pd.read_csv(file)
+        df = safe_read(file)
 
-        try:
-            df = clean_data(df)
+        if df is None:
+            st.error("❌ File reading failed. Please convert CSV to UTF-8.")
+            st.stop()
+
+        df = clean_data(df)
+
+        if st.button("Run Prediction"):
 
             df["Churn_Probability"] = pipeline.predict_proba(df)[:, 1]
             df["Prediction"] = pipeline.predict(df)
             df["Risk_Level"] = df["Churn_Probability"].apply(risk_level)
 
+            st.success("Prediction completed successfully")
             st.dataframe(df.head())
 
-            csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download Results", csv, "churn_results.csv", "text/csv")
+            # =========================
+            # CHARTS
+            # =========================
+            col1, col2 = st.columns(2)
 
-        except Exception as e:
-            st.error(f"Error: {e}")
+            with col1:
+                st.subheader("Risk Distribution")
+                df["Risk_Level"].value_counts().plot(kind="bar")
+                st.pyplot(plt.gcf())
+
+            with col2:
+                st.subheader("Churn Probability")
+                plt.hist(df["Churn_Probability"], bins=20)
+                st.pyplot(plt.gcf())
+
+            csv = df.to_csv(index=False).encode("utf-8")
+            st.download_button("Download Results", csv, "results.csv", "text/csv")
