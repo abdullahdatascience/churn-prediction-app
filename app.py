@@ -2,68 +2,44 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
+import os
 import matplotlib.pyplot as plt
 
 # =========================
-# CONFIG
+# PAGE CONFIG
 # =========================
-st.set_page_config(page_title="Churn AI Dashboard", layout="wide")
+st.set_page_config(page_title="Churn AI Dashboard PRO", layout="wide")
 
-st.title("📊 Customer Churn Prediction System (PRO)")
+st.title("📊 Customer Churn Prediction System (PRO DASHBOARD)")
 
 # =========================
-# SAFE MODEL LOAD
+# SAFE MODEL LOADING
 # =========================
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "churn_pipeline.pkl")
+
 try:
-    pipeline = joblib.load("churn_pipeline.pkl")
-    FEATURES = list(pipeline.feature_names_in_)
-except Exception:
-    st.error("❌ Model file not found or corrupted.")
+    pipeline = joblib.load(MODEL_PATH)
+except Exception as e:
+    st.error(f"❌ Model load failed: {e}")
     st.stop()
 
-NUMERIC_COLS = ["SeniorCitizen", "tenure", "MonthlyCharges", "TotalCharges"]
-
 # =========================
-# SAFE CSV LOADER
-# =========================
-def safe_read(file):
-    encodings = ["utf-8", "latin1", "ISO-8859-1"]
-
-    for enc in encodings:
-        try:
-            return pd.read_csv(file, encoding=enc)
-        except:
-            continue
-
-    return None
-
-# =========================
-# DATA CLEANER
+# CLEANING FUNCTION
 # =========================
 def clean_data(df):
+    df = df.copy()
     df = df.replace([" ", ""], np.nan)
-    df = df.reindex(columns=FEATURES)
 
-    for col in FEATURES:
-        if col in NUMERIC_COLS:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+    for col in df.columns:
+        if df[col].dtype == "object":
+            df[col] = df[col].astype(str).str.strip()
         else:
-            df[col] = df[col].astype(str)
+            df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # fill missing values safely
-    df[NUMERIC_COLS] = df[NUMERIC_COLS].fillna(0)
-
-    for col in FEATURES:
-        if col not in NUMERIC_COLS:
-            df[col] = df[col].fillna("No")
-
-    df = df.replace([np.inf, -np.inf], np.nan)
-    df = df.fillna(0)
-
-    return df
+    return df.fillna(0)
 
 # =========================
-# RISK LEVEL
+# RISK FUNCTION
 # =========================
 def risk_level(p):
     if p < 0.3:
@@ -73,60 +49,68 @@ def risk_level(p):
     return "High Risk"
 
 # =========================
-# SIDEBAR
+# SIDEBAR NAVIGATION
 # =========================
-menu = st.sidebar.radio("Menu", ["Dashboard", "Single Prediction", "Batch Prediction"])
+menu = st.sidebar.radio(
+    "Navigation",
+    ["📊 Dashboard", "👤 Single Prediction", "📂 Batch Prediction"]
+)
 
-# =========================
+# =========================================================
 # DASHBOARD
-# =========================
-if menu == "Dashboard":
-    st.header("📊 Business Insights Dashboard")
+# =========================================================
+if menu == "📊 Dashboard":
 
-    st.markdown("Upload dataset to see insights")
+    st.header("Business Insights Dashboard")
 
-    file = st.file_uploader("Upload CSV for Analysis", type=["csv"])
+    file = st.file_uploader("Upload dataset for insights", type=["csv"])
 
     if file:
-        df = safe_read(file)
-
-        if df is None:
-            st.error("❌ Cannot read file. Please upload valid CSV.")
-            st.stop()
-
+        df = pd.read_csv(file)
         df = clean_data(df)
 
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric("Total Customers", len(df))
+
+        with col2:
+            churn_rate = 0
+            if "Churn" in df.columns:
+                churn_rate = (df["Churn"].astype(str).str.lower() == "yes").mean()
+            st.metric("Churn Rate", f"{churn_rate:.2%}")
+
+        with col3:
+            st.metric("Avg Monthly Charges", f"{df['MonthlyCharges'].mean():.2f}")
+
+        # Charts
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("Churn Distribution")
-
-            churn_counts = df.get("Churn", pd.Series(["No"] * len(df))).value_counts()
-
-            fig, ax = plt.subplots()
-            ax.bar(churn_counts.index.astype(str), churn_counts.values)
-            st.pyplot(fig)
-
-        with col2:
             st.subheader("Monthly Charges Distribution")
-
             fig, ax = plt.subplots()
             ax.hist(df["MonthlyCharges"], bins=20)
             st.pyplot(fig)
 
-# =========================
-# SINGLE PREDICTION
-# =========================
-elif menu == "Single Prediction":
+        with col2:
+            st.subheader("Tenure Distribution")
+            fig, ax = plt.subplots()
+            ax.hist(df["tenure"], bins=20)
+            st.pyplot(fig)
 
-    st.header("👤 Single Customer Prediction")
+# =========================================================
+# SINGLE PREDICTION
+# =========================================================
+elif menu == "👤 Single Prediction":
+
+    st.header("Customer Churn Prediction")
 
     gender = st.selectbox("Gender", ["Female", "Male"])
     SeniorCitizen = st.selectbox("Senior Citizen", [0, 1])
     Partner = st.selectbox("Partner", ["Yes", "No"])
     Dependents = st.selectbox("Dependents", ["Yes", "No"])
-
     tenure = st.number_input("Tenure", 0, 100, 12)
+
     PhoneService = st.selectbox("Phone Service", ["Yes", "No"])
     MultipleLines = st.selectbox("Multiple Lines", ["Yes", "No"])
 
@@ -178,53 +162,52 @@ elif menu == "Single Prediction":
         prob = pipeline.predict_proba(input_df)[0][1]
         pred = pipeline.predict(input_df)[0]
 
-        st.subheader("Result")
-        st.metric("Churn Probability", f"{prob:.2f}")
-        st.write("Risk:", risk_level(prob))
-        st.write("Prediction:", "Churn" if pred == 1 else "No Churn")
+        st.subheader("Prediction Result")
 
-# =========================
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric("Churn Probability", f"{prob:.2f}")
+        col2.metric("Risk Level", risk_level(prob))
+        col3.metric("Decision", "Will Churn" if pred == 1 else "Will Stay")
+
+# =========================================================
 # BATCH PREDICTION
-# =========================
-elif menu == "Batch Prediction":
+# =========================================================
+elif menu == "📂 Batch Prediction":
 
-    st.header("📂 Batch Prediction")
+    st.header("Batch Customer Prediction")
 
     file = st.file_uploader("Upload CSV", type=["csv"])
 
     if file:
 
-        df = safe_read(file)
-
-        if df is None:
-            st.error("❌ File reading failed. Please convert CSV to UTF-8.")
-            st.stop()
-
-        df = clean_data(df)
+        df = pd.read_csv(file)
+        df_clean = clean_data(df)
 
         if st.button("Run Prediction"):
 
-            df["Churn_Probability"] = pipeline.predict_proba(df)[:, 1]
-            df["Prediction"] = pipeline.predict(df)
+            df["Churn_Probability"] = pipeline.predict_proba(df_clean)[:, 1]
+            df["Prediction"] = pipeline.predict(df_clean)
             df["Risk_Level"] = df["Churn_Probability"].apply(risk_level)
 
-            st.success("Prediction completed successfully")
+            st.success("Prediction completed")
+
             st.dataframe(df.head())
 
-            # =========================
-            # CHARTS
-            # =========================
+            # Charts
             col1, col2 = st.columns(2)
 
             with col1:
                 st.subheader("Risk Distribution")
-                df["Risk_Level"].value_counts().plot(kind="bar")
-                st.pyplot(plt.gcf())
+                fig, ax = plt.subplots()
+                df["Risk_Level"].value_counts().plot(kind="bar", ax=ax)
+                st.pyplot(fig)
 
             with col2:
-                st.subheader("Churn Probability")
-                plt.hist(df["Churn_Probability"], bins=20)
-                st.pyplot(plt.gcf())
+                st.subheader("Churn Probability Distribution")
+                fig, ax = plt.subplots()
+                ax.hist(df["Churn_Probability"], bins=20)
+                st.pyplot(fig)
 
             csv = df.to_csv(index=False).encode("utf-8")
-            st.download_button("Download Results", csv, "results.csv", "text/csv")
+            st.download_button("Download Results", csv, "churn_results.csv", "text/csv")
